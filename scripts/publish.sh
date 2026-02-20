@@ -119,9 +119,17 @@ confirm "Proceed with release?" || exit 0
 # ── bump Cargo.toml ──────────────────────────────────────────────────────────
 
 info "Updating ${CARGO_TOML}..."
-# Replace only the first `version = "…"` line (the [package] version)
-sed -i.bak "0,/^version = \"${CURRENT}\"/ s/^version = \"${CURRENT}\"/version = \"${TARGET}\"/" "$CARGO_TOML"
-rm -f "${CARGO_TOML}.bak"
+# Replace only the first `version = "…"` line (the [package] version).
+# Uses Python to stay portable across macOS (BSD sed) and Linux (GNU sed).
+python3 - "$CARGO_TOML" "$CURRENT" "$TARGET" <<'PYEOF'
+import sys, re
+path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(path).read()
+patched, n = re.subn(rf'^version = "{re.escape(old)}"', f'version = "{new}"', text, count=1, flags=re.MULTILINE)
+if n == 0:
+    sys.exit(f"Could not find version = \"{old}\" in {path}")
+open(path, "w").write(patched)
+PYEOF
 
 # Update Cargo.lock without a full build
 cargo update --workspace --quiet 2>/dev/null || true
