@@ -96,7 +96,7 @@ impl Database {
         &self,
         admin_name: &str,
     ) -> AppResult<Option<BootstrapAdmin>> {
-        if self.admin_exists().await? {
+        if self.get_admin_client().await?.is_some() {
             return Ok(None);
         }
 
@@ -111,12 +111,60 @@ impl Database {
         }))
     }
 
+    pub async fn reset_admin(&self) -> AppResult<BootstrapAdmin> {
+        let generated = crypto::generate_ed25519_keypair()?;
+
+        if let Some(admin) = self.get_admin_client().await? {
+            self.conn
+                .execute(
+                    "UPDATE clients SET public_key = ?1 WHERE id = ?2",
+                    params![generated.public_key_b64.as_str(), admin.id.to_string()],
+                )
+                .await?;
+
+            let client = self
+                .get_client_by_id(&admin.id)
+                .await?
+                .ok_or_else(|| AppError::Internal(String::from("failed to load reset admin")))?;
+
+            Ok(BootstrapAdmin {
+                client,
+                private_key_pem: generated.private_key_pem,
+            })
+        } else {
+            let client = self
+                .create_client("bootstrap-admin", &generated.public_key_b64, true)
+                .await?;
+
+            Ok(BootstrapAdmin {
+                client,
+                private_key_pem: generated.private_key_pem,
+            })
+        }
+    }
+
     pub async fn get_client_by_id(&self, client_id: &Uuid) -> AppResult<Option<Client>> {
         let mut rows = self
             .conn
             .query(
                 "SELECT id, name, public_key, is_admin, created_at FROM clients WHERE id = ?1 LIMIT 1",
                 params![client_id.to_string()],
+            )
+            .await?;
+
+        if let Some(row) = rows.next().await? {
+            return Ok(Some(client_from_row(&row)?));
+        }
+
+        Ok(None)
+    }
+
+    pub async fn get_admin_client(&self) -> AppResult<Option<Client>> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id, name, public_key, is_admin, created_at FROM clients WHERE is_admin = 1 ORDER BY created_at ASC LIMIT 1",
+                (),
             )
             .await?;
 
@@ -468,15 +516,6 @@ impl Database {
         }
 
         Ok(None)
-    }
-
-    async fn admin_exists(&self) -> AppResult<bool> {
-        let mut rows = self
-            .conn
-            .query("SELECT id FROM clients WHERE is_admin = 1 LIMIT 1", ())
-            .await?;
-
-        Ok(rows.next().await?.is_some())
     }
 }
 

@@ -24,8 +24,25 @@ class Cloudconfig < Formula
     bin.install "cloudconfig"
   end
 
+  def post_install
+    (etc/"cloudconfig").mkpath
+    (var/"lib/cloudconfig").mkpath
+
+    env_path = etc/"cloudconfig/.env"
+    unless env_path.exist?
+      env_path.write <<~EOS
+        LISTEN_ADDR=127.0.0.1:8080
+        TURSO_URL=#{var}/lib/cloudconfig/cloudconfig.db
+      EOS
+    end
+
+    cd etc/"cloudconfig" do
+      system opt_bin/"cloudconfig", "init"
+    end
+  end
+
   service do
-    run [opt_bin/"cloudconfig"]
+    run [opt_bin/"cloudconfig", "start"]
     keep_alive true
     working_dir "#{etc}/cloudconfig"
     log_path var/"log/cloudconfig.log"
