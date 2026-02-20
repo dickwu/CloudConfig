@@ -1,400 +1,173 @@
-# CloudConfig Sync Server
+# CloudConfig
 
-Rust-based cloud configuration sync service with Turso/libSQL storage, split into two API areas:
+A lightweight, self-hosted configuration sync server. Clients authenticate with Ed25519 keypairs and retrieve project-scoped key/value config over a signed HTTP API. Backed by [Turso](https://turso.tech) (libSQL).
 
-- `admin` API for provisioning clients/projects/config/permissions
-- `user` API for reading/updating project config under per-client `read` / `write` permissions
+## Features
 
-Config values are stored as **JSON strings** with integer versioning.
+- Ed25519 request signing — every request is signed and timestamp-validated
+- Admin / user role separation
+- Project-scoped config with per-client read/write permissions
+- Backed by Turso (remote) or any libSQL-compatible database (local file, in-memory)
+- Single static binary, no runtime dependencies
 
-## Core Capabilities
+## Installation
 
-- ED25519 client identity (public key stored, private key returned once)
-- Signature-based request authentication for both admin and user APIs
-- Replay protection (`timestamp` window + nonce uniqueness)
-- Per-project client permissions (`can_read`, `can_write`)
-- Config version auto-increment on update
-- Turso remote DB support and local libSQL mode
-
-## Tech Stack
-
-- `axum` for HTTP routing/middleware
-- `libsql` for Turso/local database access
-- `rcgen` for ED25519 key generation
-- `ring` for ED25519 signature verification
-- `tokio`, `serde`, `tower-http`, `tracing`
-
-## API Areas
-
-- **Admin API:** `/admin/*` (must be authenticated **and** `is_admin = true`)
-- **User API:** `/api/*` (must be authenticated; permissions checked per project)
-- **Health:** `/health` (no auth)
-
-## Authentication
-
-All `/admin/*` and `/api/*` routes require these headers:
-
-- `X-Client-Id`: client UUID
-- `X-Timestamp`: unix timestamp (seconds)
-- `X-Nonce`: unique request nonce (1..=128 chars)
-- `X-Signature`: base64 signature bytes
-
-### Canonical String
-
-The server verifies signature against:
-
-```text
-{timestamp}\n{HTTP_METHOD}\n{path_and_query}\n{nonce}\n{sha256_hex(body)}
-```
-
-Notes:
-
-- `path_and_query` is used (not only path)
-- body hash is over raw request bytes
-- timestamp drift is validated via `MAX_CLOCK_DRIFT_SECONDS`
-- replay prevention uses `used_nonces` table per `(client_id, nonce)`
-
-## Environment Variables
-
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `LISTEN_ADDR` | No | `0.0.0.0:8080` | Bind address |
-| `TURSO_URL` | No | `:memory:` | `libsql://...` for Turso remote, or local path/`:memory:` |
-| `TURSO_AUTH_TOKEN` | Remote only | empty | Required when `TURSO_URL` is remote |
-| `MAX_CLOCK_DRIFT_SECONDS` | No | `300` | Allowed signature timestamp drift |
-| `MAX_BODY_SIZE_BYTES` | No | `1048576` | Max request body for signed routes |
-
-## Data Model
-
-### `clients`
-
-- `id` (UUID text, PK)
-- `name`
-- `public_key` (base64 ED25519 public key)
-- `is_admin` (`0/1`)
-- `created_at`
-
-### `projects`
-
-- `id` (UUID text, PK)
-- `name` (unique)
-- `description`
-- `created_at`
-
-### `configs`
-
-- `id` (UUID text, PK)
-- `project_id` (FK)
-- `key`
-- `value` (**JSON string**)
-- `version` (integer)
-- `updated_at`
-- unique `(project_id, key)`
-
-### `client_permissions`
-
-- `client_id` (FK)
-- `project_id` (FK)
-- `can_read` (`0/1`)
-- `can_write` (`0/1`)
-- primary key `(client_id, project_id)`
-
-### `used_nonces`
-
-- `client_id` (FK)
-- `nonce`
-- `created_at` (unix seconds)
-- primary key `(client_id, nonce)`
-
-## Full API Reference
-
-## 1) Health
-
-### `GET /health`
-
-- Auth: none
-- Response `200`: `"ok"`
-
-## 2) Admin API (`/admin/*`)
-
-All admin endpoints:
-
-- require valid signature headers
-- require authenticated client with `is_admin = true`
-
-### `POST /admin/clients`
-
-Create a non-admin client keypair.
-
-Request body:
-
-```json
-{
-  "name": "client-a"
-}
-```
-
-Response `201`:
-
-```json
-{
-  "client": {
-    "id": "uuid",
-    "name": "client-a",
-    "public_key": "base64-ed25519-public-key",
-    "is_admin": false,
-    "created_at": "2026-02-20 12:34:56"
-  },
-  "private_key_pem": "-----BEGIN PRIVATE KEY-----\n..."
-}
-```
-
-Behavior:
-
-- server generates ED25519 keypair
-- stores only public key
-- returns private key PEM once in response
-
-### `GET /admin/clients`
-
-Response `200`: array of client objects.
-
-### `DELETE /admin/clients/{id}`
-
-- Response `204` on success
-- `404` if client not found
-- `409` if trying to delete currently authenticated admin client
-
-### `POST /admin/projects`
-
-Request:
-
-```json
-{
-  "name": "project-a",
-  "description": "optional description"
-}
-```
-
-Response `201`: created project object.
-
-Errors:
-
-- `409` if project name already exists
-
-### `GET /admin/projects`
-
-Response `200`: array of project objects.
-
-### `POST /admin/projects/{project_id}/configs`
-
-Upsert one config key/value for a project.
-
-Request:
-
-```json
-{
-  "key": "app-config",
-  "value": "{\"featureFlag\":true,\"timeoutMs\":5000}"
-}
-```
-
-Rules:
-
-- `value` must be valid JSON **string content**
-- insert starts at `version = 1`
-- existing key increments `version = version + 1`
-
-Response `200`: config object.
-
-### `GET /admin/projects/{project_id}/configs`
-
-Response `200`: array of config objects for the project.
-
-### `POST /admin/clients/{client_id}/permissions`
-
-Grant/update project permission for one client.
-
-Request:
-
-```json
-{
-  "project_id": "uuid",
-  "can_read": true,
-  "can_write": false
-}
-```
-
-Behavior:
-
-- if `can_write = true`, server ensures read is also effectively true
-- upserts permission row
-
-Response `200`:
-
-```json
-{
-  "client_id": "uuid",
-  "project_id": "uuid",
-  "can_read": true,
-  "can_write": false
-}
-```
-
-### `DELETE /admin/clients/{client_id}/permissions/{project_id}`
-
-- Response `204` on success
-- `404` if permission row does not exist
-
-## 3) User API (`/api/*`)
-
-All user endpoints:
-
-- require valid signature headers
-- require project permission checks
-
-### `GET /api/projects`
-
-Returns projects where client has any permission (`can_read` or `can_write`).
-
-Response `200`: array of projects.
-
-### `GET /api/projects/{project_id}/configs`
-
-Requires `can_read = true`.
-
-Response `200`: array of configs with `version`.
-
-### `GET /api/projects/{project_id}/configs/{key}`
-
-Requires `can_read = true`.
-
-Response `200`: config object.
-
-Errors:
-
-- `404` if config key not found
-
-### `PUT /api/projects/{project_id}/configs/{key}`
-
-Requires `can_write = true`.
-
-Request:
-
-```json
-{
-  "value": "{\"featureFlag\":false,\"timeoutMs\":3000}"
-}
-```
-
-Rules:
-
-- `value` must be valid JSON string content
-- upsert behavior, version auto-increments
-
-Response `200`: updated config object with new `version`.
-
-## Error Model
-
-Common HTTP statuses:
-
-- `400` bad request / invalid JSON value / body too large
-- `401` missing/invalid auth headers, invalid signature, replayed request
-- `403` admin required or missing read/write permission
-- `404` missing resource
-- `409` conflict (for example duplicate project name)
-- `500` internal/server/database/crypto failures
-
-Response shape:
-
-```json
-{
-  "error": "message"
-}
-```
-
-## Bootstrap and First Admin
-
-On first startup (when no admin exists):
-
-- server generates an admin keypair
-- stores admin public key in `clients` with `is_admin = true`
-- prints client id and private key to stdout
-
-This bootstrap admin credential is then used to call `/admin/*` and provision all other clients.
-
-## Data Flow
-
-### Provisioning Flow (Admin)
-
-```mermaid
-sequenceDiagram
-    participant AdminClient
-    participant Server
-    participant TursoDB
-    participant UserClient
-
-    AdminClient->>Server: Signed POST /admin/clients
-    Server->>Server: Verify signature + nonce + timestamp
-    Server->>Server: Generate ED25519 keypair
-    Server->>TursoDB: Insert client(public_key, is_admin=0)
-    Server-->>AdminClient: Return client + private_key_pem
-    AdminClient->>UserClient: Deliver private key securely
-
-    AdminClient->>Server: Signed POST /admin/clients/{id}/permissions
-    Server->>Server: Verify admin
-    Server->>TursoDB: Upsert client_permissions
-    Server-->>AdminClient: Permission row
-```
-
-### Runtime Read/Write Flow (User)
-
-```mermaid
-sequenceDiagram
-    participant UserClient
-    participant Server
-    participant TursoDB
-
-    UserClient->>Server: Signed GET /api/projects/{project_id}/configs
-    Server->>Server: Verify signature + replay protection
-    Server->>TursoDB: Check client_permissions(can_read)
-    Server->>TursoDB: Query configs for project
-    Server-->>UserClient: Config list with version
-
-    UserClient->>Server: Signed PUT /api/projects/{project_id}/configs/{key}
-    Server->>TursoDB: Check client_permissions(can_write)
-    Server->>TursoDB: Upsert config, version = version + 1
-    Server-->>UserClient: Updated config with incremented version
-```
-
-## Local Run
-
-1. Copy env:
+### Linux (systemd)
 
 ```bash
-cp .env.example .env
+curl -fsSL https://raw.githubusercontent.com/dickwu/CloudConfig/main/scripts/deploy.sh | sudo bash
 ```
 
-2. Start:
+The script will:
+1. Detect your architecture (x86\_64 or aarch64)
+2. Download and verify the latest release binary
+3. Install it to `/usr/local/bin/cloudconfig`
+4. Create a config file at `/etc/cloudconfig/.env`
+5. Register and start a hardened systemd service
+
+**Update to latest release:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/dickwu/CloudConfig/main/scripts/deploy.sh | sudo bash
+```
+
+**Force reinstall the same version:**
+```bash
+FORCE=1 curl -fsSL https://raw.githubusercontent.com/dickwu/CloudConfig/main/scripts/deploy.sh | sudo bash
+```
+
+**Pin a specific version:**
+```bash
+VERSION=v1.2.3 curl -fsSL https://raw.githubusercontent.com/dickwu/CloudConfig/main/scripts/deploy.sh | sudo bash
+```
+
+### macOS (Homebrew)
 
 ```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/dickwu/CloudConfig/main/scripts/setup-mac.sh)
+```
+
+Or manually:
+```bash
+brew tap dickwu/cloudconfig https://github.com/dickwu/CloudConfig
+brew install cloudconfig
+brew services start cloudconfig
+```
+
+Edit config before starting:
+```bash
+$EDITOR "$(brew --prefix)/etc/cloudconfig/.env"
+brew services restart cloudconfig
+```
+
+### Build from source
+
+```bash
+cargo build --release --locked
+./target/release/cloudconfig_sync_server
+```
+
+## Configuration
+
+All configuration is via environment variables (or a `.env` file in the working directory).
+
+| Variable | Default | Description |
+|---|---|---|
+| `LISTEN_ADDR` | `0.0.0.0:8080` | TCP address to bind |
+| `TURSO_URL` | `:memory:` | libSQL connection string. Use `libsql://…` for Turso remote, `./cloudconfig.db` for local file, or `:memory:` for in-process. |
+| `TURSO_AUTH_TOKEN` | _(empty)_ | Turso auth token. Not required for local databases. |
+| `MAX_CLOCK_DRIFT_SECONDS` | `300` | Maximum allowed difference between request timestamp and server time. |
+| `MAX_BODY_SIZE_BYTES` | `1048576` | Maximum request body size (1 MiB default). |
+
+See [`.env.example`](.env.example) for a ready-to-copy template.
+
+## First Run — Bootstrap Admin
+
+On the very first startup, if no clients exist, the server automatically creates a bootstrap admin client and prints its credentials **once**:
+
+```
+Bootstrap admin created.
+Client ID: <uuid>
+Private key (store this safely, shown once):
+-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----
+```
+
+Save the private key immediately. It will not be shown again.
+
+## API Overview
+
+All non-health endpoints require three headers:
+
+| Header | Description |
+|---|---|
+| `X-Client-Id` | UUID of the authenticating client |
+| `X-Timestamp` | Unix timestamp (seconds) |
+| `X-Nonce` | Random string, used for replay prevention |
+| `X-Signature` | Ed25519 signature of `method\npath\ntimestamp\nnonce\nbody_hex` |
+
+### Health
+
+```
+GET /health  →  200 "ok"
+```
+
+### Admin endpoints (`/admin/*`)
+
+Requires an admin client.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/admin/clients` | Create a new client |
+| `GET` | `/admin/clients` | List all clients |
+| `DELETE` | `/admin/clients/:id` | Delete a client |
+| `POST` | `/admin/projects` | Create a project |
+| `GET` | `/admin/projects` | List all projects |
+| `POST` | `/admin/projects/:id/configs` | Upsert a config key |
+| `GET` | `/admin/projects/:id/configs` | List configs for a project |
+| `POST` | `/admin/clients/:id/permissions` | Grant project permission |
+| `DELETE` | `/admin/clients/:id/permissions/:project_id` | Revoke permission |
+
+### User endpoints (`/api/*`)
+
+Requires any authenticated client with appropriate permissions.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/projects` | List projects the client has access to |
+| `GET` | `/api/projects/:id/configs` | Fetch all configs for a project |
+| `GET` | `/api/projects/:id/configs/:key` | Fetch a single config value |
+
+## Development
+
+```bash
+# Run with in-memory database
 cargo run
+
+# Run tests
+cargo test
+
+# Lint
+cargo clippy --all-targets --all-features
+
+# Format
+cargo fmt
 ```
 
-3. Verify:
+## Releases
+
+Releases are automated via GitHub Actions. To publish a new version:
 
 ```bash
-curl http://127.0.0.1:8080/health
+git tag v1.2.3
+git push origin v1.2.3
 ```
 
-## Permission Semantics
+CI will:
+1. Cross-compile for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin`
+2. Create a GitHub release with binaries and SHA256 checksums
+3. Automatically update `Formula/cloudconfig.rb` with the new URLs and hashes
 
-- `read` allows listing/getting project configs.
-- `write` allows updating config values.
-- server coerces `write => read` when setting permissions.
+## License
 
-## Version Semantics
-
-- New config key: `version = 1`
-- Update existing key via admin upsert or user put: `version += 1`
-
+MIT

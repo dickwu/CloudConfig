@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+          - target: x86_64-apple-darwin
+            os: macos-13
+            use_cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_cross: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Install cross
+        if: matrix.use_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release --locked --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }}
+          fi
+
+      - name: Package
+        shell: bash
+        run: |
+          BINARY="target/${{ matrix.target }}/release/cloudconfig_sync_server"
+          ARCHIVE="cloudconfig-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          cp "$BINARY" cloudconfig
+          tar czf "$ARCHIVE" cloudconfig
+          sha256sum "$ARCHIVE" | awk '{print $1}' > "${ARCHIVE}.sha256"
+          rm cloudconfig
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            cloudconfig-*.tar.gz
+            cloudconfig-*.tar.gz.sha256
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            cloudconfig-*.tar.gz
+            cloudconfig-*.tar.gz.sha256
+          generate_release_notes: true
+
+      - name: Update Homebrew formula
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          ARM_SHA=$(cat "cloudconfig-${VERSION}-aarch64-apple-darwin.tar.gz.sha256")
+          X86_SHA=$(cat "cloudconfig-${VERSION}-x86_64-apple-darwin.tar.gz.sha256")
+          python3 scripts/update-formula.py "${VERSION}" "${ARM_SHA}" "${X86_SHA}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/cloudconfig.rb
+          git diff --staged --quiet || git commit -m "chore: bump formula to ${VERSION}"
+          git push origin HEAD:main
