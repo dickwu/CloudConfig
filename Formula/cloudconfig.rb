@@ -5,18 +5,18 @@
 class Cloudconfig < Formula
   desc "Secure cloud configuration sync server"
   homepage "https://github.com/dickwu/CloudConfig"
-  version "0.1.1"
+  version "0.1.2"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/dickwu/CloudConfig/releases/download/v0.1.1/cloudconfig-v0.1.1-aarch64-apple-darwin.tar.gz"
-      sha256 "b4f10d9486f3ce98646d2857771dc9fe7a28eff6f366f2cad19ffb088b839a2d"
+      url "https://github.com/dickwu/CloudConfig/releases/download/v0.1.2/cloudconfig-v0.1.2-aarch64-apple-darwin.tar.gz"
+      sha256 "823cd3a54ae74fe6faa083e5639834763526b61636164f58872bceae6878ebce"
     end
 
     on_intel do
-      url "https://github.com/dickwu/CloudConfig/releases/download/v0.1.1/cloudconfig-v0.1.1-x86_64-apple-darwin.tar.gz"
-      sha256 "fc7e071aaf9ff3aafb08fcb629369bca2309b762b0958b0c0f9b430c09e8863d"
+      url "https://github.com/dickwu/CloudConfig/releases/download/v0.1.2/cloudconfig-v0.1.2-x86_64-apple-darwin.tar.gz"
+      sha256 "a8f710d0fedbe84bc26eacc60bff6e0dec5f22e4fe3233dd0ecfd1e421e8e86c"
     end
   end
 
@@ -33,6 +33,9 @@ class Cloudconfig < Formula
       env_path.write <<~EOS
         LISTEN_ADDR=127.0.0.1:8080
         TURSO_URL=#{var}/lib/cloudconfig/cloudconfig.db
+        TURSO_AUTH_TOKEN=
+        MAX_CLOCK_DRIFT_SECONDS=300
+        MAX_BODY_SIZE_BYTES=1048576
       EOS
     end
 
