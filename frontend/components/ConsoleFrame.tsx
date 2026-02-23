@@ -1,98 +1,127 @@
 "use client";
 
+import {
+  ArrowsClockwise,
+  GearSix,
+  House,
+  ShieldCheck,
+  SquaresFour,
+  UsersThree,
+} from "@phosphor-icons/react";
+import { motion } from "framer-motion";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { AuthConfig } from "@/lib/cloudconfig";
-import { updateAuthField } from "@/lib/useAuthConfig";
+import { ConfigModal } from "@/components/ConfigModal";
+import { useConfigStore, useIsConfigured } from "@/lib/store";
 
 type ConsoleFrameProps = {
   title: string;
   description: string;
-  auth: AuthConfig;
-  onAuthChange: (nextAuth: AuthConfig) => void;
   children: ReactNode;
 };
 
 const links = [
-  { href: "/", label: "Home" },
-  { href: "/clients", label: "Clients" },
-  { href: "/projects", label: "Projects" },
-  { href: "/configs", label: "Configs" },
-  { href: "/permissions", label: "Permissions" },
+  { href: "/", label: "Home", icon: House },
+  { href: "/clients", label: "Clients", icon: UsersThree },
+  { href: "/projects", label: "Projects", icon: SquaresFour },
+  { href: "/configs", label: "Configs", icon: ArrowsClockwise },
+  { href: "/permissions", label: "Permissions", icon: ShieldCheck },
 ];
 
 export function ConsoleFrame({
   title,
   description,
-  auth,
-  onAuthChange,
   children,
 }: ConsoleFrameProps) {
+  const pathname = usePathname();
+  const activeServer = useConfigStore((state) =>
+    state.servers.find((server) => server.id === state.activeServerId),
+  );
+  const isConfigured = useIsConfigured();
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const isConfigModalVisible = isConfigModalOpen || !isConfigured;
+
+  const activeServerLabel = useMemo(() => {
+    if (!activeServer) {
+      return "No server configured";
+    }
+    const alias = activeServer.alias || "Unnamed";
+    return `${alias} · ${truncateMiddle(activeServer.baseUrl)}`;
+  }, [activeServer]);
+
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-6 py-8">
-      <header className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-        <h1 className="text-2xl font-semibold text-zinc-100">{title}</h1>
-        <p className="mt-2 text-sm text-zinc-300">{description}</p>
+    <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-4 py-8 md:px-6 md:py-10">
+      <header className="flex flex-col gap-3 border-b border-zinc-800 pb-6 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">{title}</h1>
+          <p className="mt-2 max-w-[62ch] text-sm leading-relaxed text-zinc-400">
+            {description}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsConfigModalOpen(true)}
+          className="focus-ring interactive inline-flex items-center gap-2 rounded-md border border-emerald-700/80 bg-emerald-950/40 px-3 py-2 text-sm font-medium text-emerald-200 hover:border-emerald-500/90"
+        >
+          <GearSix className="size-4" weight="duotone" />
+          Config
+        </button>
       </header>
 
-      <nav className="flex flex-wrap gap-3 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
-        {links.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800"
-          >
-            {link.label}
-          </Link>
-        ))}
+      <nav className="flex flex-col gap-3 border-b border-zinc-800 pb-5 pt-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          {links.map((link) => {
+            const isActive = pathname === link.href;
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`focus-ring interactive inline-flex items-center gap-2 border-b-2 px-1 pb-1 text-sm ${
+                  isActive
+                    ? "border-emerald-400 text-emerald-200"
+                    : "border-transparent text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
+                }`}
+              >
+                <link.icon className="size-4" weight={isActive ? "duotone" : "regular"} />
+                <span>{link.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900/70 px-3 py-2 text-xs text-zinc-300">
+          <span className="pulse-soft size-2 rounded-full bg-emerald-400" />
+          <span className="font-mono">
+            {activeServerLabel}
+          </span>
+        </div>
       </nav>
 
-      <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-        <h2 className="text-lg font-medium text-zinc-100">Authentication</h2>
-        <p className="mt-1 text-sm text-zinc-300">
-          Requests are signed in the browser using your Ed25519 private key.
-          Base URL and client ID are stored in session storage; private key stays
-          in memory only.
-        </p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <label className="flex flex-col gap-2 text-sm text-zinc-200">
-            Server URL
-            <input
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
-              placeholder="http://127.0.0.1:8080"
-              value={auth.baseUrl}
-              onChange={(event) =>
-                onAuthChange(updateAuthField(auth, "baseUrl", event.target.value))
-              }
-            />
-          </label>
-          <label className="flex flex-col gap-2 text-sm text-zinc-200">
-            Admin Client ID
-            <input
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
-              placeholder="UUID"
-              value={auth.clientId}
-              onChange={(event) =>
-                onAuthChange(updateAuthField(auth, "clientId", event.target.value))
-              }
-            />
-          </label>
-        </div>
-        <label className="mt-3 flex flex-col gap-2 text-sm text-zinc-200">
-          Admin Private Key (PEM)
-          <textarea
-            className="min-h-32 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
-            placeholder="-----BEGIN PRIVATE KEY-----"
-            value={auth.privateKeyPem}
-            onChange={(event) =>
-              onAuthChange(updateAuthField(auth, "privateKeyPem", event.target.value))
-            }
-          />
-        </label>
-      </section>
-
-      <main className="pb-8">{children}</main>
+      <motion.main
+        initial={{ opacity: 0, y: 8 }}
+        animate={{
+          opacity: 1,
+          y: 0,
+          transition: { type: "spring", stiffness: 100, damping: 20 },
+        }}
+        className="pb-8 pt-6"
+      >
+        {children}
+      </motion.main>
+      <ConfigModal
+        isOpen={isConfigModalVisible}
+        onClose={() => setIsConfigModalOpen(false)}
+      />
     </div>
   );
+}
+
+function truncateMiddle(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= 48) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, 24)}...${trimmed.slice(-16)}`;
 }

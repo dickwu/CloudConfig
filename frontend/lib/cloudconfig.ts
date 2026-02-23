@@ -72,6 +72,25 @@ export function ensureAuthConfig(auth: AuthConfig): void {
   }
 }
 
+export function isAuthConfigComplete(auth: AuthConfig | null): auth is AuthConfig {
+  if (!auth) {
+    return false;
+  }
+  return (
+    Boolean(auth.baseUrl.trim()) &&
+    Boolean(auth.clientId.trim()) &&
+    auth.privateKeyPem.includes("BEGIN PRIVATE KEY")
+  );
+}
+
+export function requireAuthConfig(auth: AuthConfig | null): AuthConfig {
+  if (!auth) {
+    throw new Error("Configure an active server in Config Management.");
+  }
+  ensureAuthConfig(auth);
+  return auth;
+}
+
 export function requireUuid(value: string, label: string): string {
   const normalized = value.trim();
   if (!uuidPattern.test(normalized)) {

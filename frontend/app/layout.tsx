@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+
+import { MotionProvider } from "@/components/MotionProvider";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,9 +28,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} min-h-[100dvh] antialiased`}
       >
-        {children}
+        <MotionProvider>{children}</MotionProvider>
       </body>
     </html>
   );
