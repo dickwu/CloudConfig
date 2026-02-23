@@ -32,6 +32,7 @@ setup_config() {
   cat > "$env_file" <<'ENVEOF'
 # CloudConfig server configuration
 # Edit this file, then: brew services restart cloudconfig
+# Management console is served from the same binary at "/"
 
 LISTEN_ADDR=127.0.0.1:8080
 TURSO_URL=:memory:
@@ -69,6 +70,8 @@ main() {
   echo "  Config:   $(brew --prefix)/etc/cloudconfig/.env"
   echo "  Logs:     tail -f $(brew --prefix)/var/log/cloudconfig.log"
   echo "  Status:   brew services info cloudconfig"
+  echo "  Console:  http://127.0.0.1:8080/"
+  echo "  Health:   curl http://127.0.0.1:8080/health"
   echo "  Stop:     brew services stop cloudconfig"
   echo "  Update:   brew upgrade cloudconfig && brew services restart cloudconfig"
   echo ""

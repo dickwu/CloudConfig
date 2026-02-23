@@ -77,6 +77,7 @@ create_env_file() {
   cat > "$env_file" <<'ENVEOF'
 # CloudConfig server configuration
 # Edit this file, then: systemctl restart cloudconfig
+# Management console is served from the same binary at "/"
 
 LISTEN_ADDR=0.0.0.0:8080
 TURSO_URL=:memory:
@@ -185,9 +186,11 @@ main() {
   echo ""
   success "CloudConfig ${latest} is running."
   echo ""
-  echo "  Config:  ${CONFIG_DIR}/.env"
-  echo "  Logs:    journalctl -fu ${SERVICE_NAME}"
-  echo "  Status:  systemctl status ${SERVICE_NAME}"
+  echo "  Config:   ${CONFIG_DIR}/.env"
+  echo "  Logs:     journalctl -fu ${SERVICE_NAME}"
+  echo "  Status:   systemctl status ${SERVICE_NAME}"
+  echo "  Console:  http://<server-ip>:8080/"
+  echo "  Health:   curl http://127.0.0.1:8080/health"
   echo ""
   warn "On first boot, check logs for the bootstrap admin credentials:"
   echo "  journalctl -u ${SERVICE_NAME} | grep -A3 'Bootstrap admin'"

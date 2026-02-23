@@ -10,6 +10,9 @@
 set -euo pipefail
 
 CARGO_TOML="Cargo.toml"
+FRONTEND_DIR="frontend"
+FRONTEND_PACKAGE_JSON="${FRONTEND_DIR}/package.json"
+FRONTEND_LOCK="${FRONTEND_DIR}/bun.lock"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()    { echo -e "${BLUE}[info]${NC}  $*"; }
@@ -54,11 +57,13 @@ confirm() {
 
 require_command git
 require_command cargo
+require_command bun
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "Not inside a git repository."
 cd "$REPO_ROOT"
 
 [ -f "$CARGO_TOML" ] || die "$CARGO_TOML not found in repo root."
+[ -f "$FRONTEND_PACKAGE_JSON" ] || die "${FRONTEND_PACKAGE_JSON} not found."
 
 # Ensure working tree is clean
 if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -116,6 +121,24 @@ echo -e "  Git tag         : ${GREEN}${TAG}${NC}"
 echo ""
 confirm "Proceed with release?" || exit 0
 
+# ── frontend and rust validation ──────────────────────────────────────────────
+
+info "Refreshing frontend dependencies (bun update -r)..."
+(
+  cd "$FRONTEND_DIR"
+  bun update -r
+)
+
+info "Building frontend (bun run build)..."
+(
+  cd "$FRONTEND_DIR"
+  bun run build
+)
+
+info "Running Rust compile check (cargo check)..."
+cargo check
+success "Frontend and Rust checks passed."
+
 # ── bump Cargo.toml ──────────────────────────────────────────────────────────
 
 info "Updating ${CARGO_TOML}..."
@@ -137,7 +160,7 @@ cargo update --workspace --quiet 2>/dev/null || true
 # ── commit, tag, push ────────────────────────────────────────────────────────
 
 info "Committing version bump..."
-git add "$CARGO_TOML" Cargo.lock
+git add "$CARGO_TOML" Cargo.lock "$FRONTEND_PACKAGE_JSON" "$FRONTEND_LOCK"
 git commit -m "chore: release ${TAG}"
 
 info "Creating annotated tag ${TAG}..."

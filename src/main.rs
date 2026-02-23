@@ -6,6 +6,7 @@ mod db;
 mod error;
 mod models;
 mod routes;
+mod static_files;
 
 use std::net::SocketAddr;
 
@@ -194,6 +195,7 @@ fn build_router(state: AppState) -> Router {
         .route("/health", get(health))
         .nest("/admin", routes::admin::router().route_layer(admin_layer))
         .nest("/api", routes::user::router().route_layer(user_layer))
+        .fallback(static_files::serve)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state)

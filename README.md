@@ -62,6 +62,12 @@ brew services restart cloudconfig
 ### Build from source
 
 ```bash
+# Build static frontend assets (required before cargo build)
+cd frontend
+bun install
+bun run build
+cd ..
+
 cargo build --release --locked
 ./target/release/cloudconfig_sync_server
 ```
@@ -104,7 +110,7 @@ All non-health endpoints require three headers:
 | `X-Client-Id` | UUID of the authenticating client |
 | `X-Timestamp` | Unix timestamp (seconds) |
 | `X-Nonce` | Random string, used for replay prevention |
-| `X-Signature` | Ed25519 signature of `method\npath\ntimestamp\nnonce\nbody_hex` |
+| `X-Signature` | Ed25519 signature of `timestamp\nMETHOD\npath_and_query\nnonce\nsha256(body_bytes)` |
 
 ### Health
 
@@ -140,11 +146,23 @@ Requires any authenticated client with appropriate permissions.
 
 ## Development
 
-```bash
-# Run with in-memory database
-cargo run
+Terminal 1 (frontend console):
 
-# Run tests
+```bash
+cd frontend
+bun install
+bun run dev
+```
+
+Terminal 2 (API server):
+
+```bash
+cargo run
+```
+
+General Rust checks:
+
+```bash
 cargo test
 
 # Lint
@@ -153,6 +171,8 @@ cargo clippy --all-targets --all-features
 # Format
 cargo fmt
 ```
+
+Before `cargo build` or `cargo run --release`, run `bun run build` in `frontend/` so `frontend/out/` exists for Rust static embedding.
 
 ## Releases
 
