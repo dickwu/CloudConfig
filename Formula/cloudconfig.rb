@@ -5,18 +5,18 @@
 class Cloudconfig < Formula
   desc "Secure cloud configuration sync server"
   homepage "https://github.com/dickwu/CloudConfig"
-  version "0.1.2"
+  version "0.1.3"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/dickwu/CloudConfig/releases/download/v0.1.2/cloudconfig-v0.1.2-aarch64-apple-darwin.tar.gz"
-      sha256 "823cd3a54ae74fe6faa083e5639834763526b61636164f58872bceae6878ebce"
+      url "https://github.com/dickwu/CloudConfig/releases/download/v0.1.3/cloudconfig-v0.1.3-aarch64-apple-darwin.tar.gz"
+      sha256 "e95ec0fc881622b36737632860436d29174a93624c7ac4bde51cc2c1311e6c07"
     end
 
     on_intel do
-      url "https://github.com/dickwu/CloudConfig/releases/download/v0.1.2/cloudconfig-v0.1.2-x86_64-apple-darwin.tar.gz"
-      sha256 "a8f710d0fedbe84bc26eacc60bff6e0dec5f22e4fe3233dd0ecfd1e421e8e86c"
+      url "https://github.com/dickwu/CloudConfig/releases/download/v0.1.3/cloudconfig-v0.1.3-x86_64-apple-darwin.tar.gz"
+      sha256 "6fa3dfd3979f295493c715589355444b4934645446ce635006b209f4d6488bdd"
     end
   end
 
